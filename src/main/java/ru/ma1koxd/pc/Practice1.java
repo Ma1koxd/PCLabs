@@ -5,7 +5,7 @@ public class Practice1 {
     static final int n = 100000000;
     static final int N_PER_THREAD = n / THREADS;
     static final double l = 0;
-    static final double r = 4;
+    static final double r = 5;
     static final double d = (r - l) / n;
 
     public static void main(String[] args) throws InterruptedException {
@@ -53,11 +53,21 @@ public class Practice1 {
     }
 
     public static double f(double x) {
-        return 2 * x;
+        return x * x * Math.sin(x) + 3 * x;
     }
 
     public static double F(double r, double l) {
-        return r * r - l * l;
+        double right = -r * r * Math.cos(r)
+                + 2 * r * Math.sin(r)
+                + 2 * Math.cos(r)
+                + 3 * r * r / 2;
+
+        double left = -l * l * Math.cos(l)
+                + 2 * l * Math.sin(l)
+                + 2 * Math.cos(l)
+                + 3 * l * l / 2;
+
+        return right - left;
     }
 
     public static Thread createThread(int number, double[] results) {
@@ -77,14 +87,3 @@ public class Practice1 {
         return thread;
     }
 }
-
-//Не думал я, что такой результат колоссально отличающийся получится в сравнении с результатом на практике
-//"Последовательный способ
-//Результат: 15.999999840000022
-//Точное значение: 16.0
-//Время (мс): 172.7242
-//
-//Параллельный способ
-//Результат: 15.999998560000016
-//Точное значение: 16.0
-//Время (мс): 59.7719"
