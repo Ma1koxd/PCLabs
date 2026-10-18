@@ -1,4 +1,4 @@
-package ru.ma1koxd.pc;
+package ru.ma1koxd.pc.practice4;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -6,6 +6,8 @@ import java.util.Random;
 import java.util.Vector;
 import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
@@ -36,6 +38,27 @@ public class WorkStealing {
         }
         public void shutdown(){
             threads.forEach(t -> {try {t.join();} catch (InterruptedException e) {throw new RuntimeException(e);}});
+        }
+    }
+
+    static class FixedThreadPoolExecutor implements ShutdownableExecutor {
+        private final ExecutorService executor;
+        FixedThreadPoolExecutor(int threads) {
+            executor = Executors.newFixedThreadPool(threads);
+        }
+        @Override
+        public void execute(Runnable command) {
+            executor.execute(command);
+        }
+        @Override
+        public void shutdown() {
+            executor.shutdown();
+            try {
+                executor.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new RuntimeException(e);
+            }
         }
     }
 
@@ -175,14 +198,32 @@ public class WorkStealing {
     static final double PARETO_SHAPE = 1.5;
     static final int PARETO_RAW_MAX_TASK_TIME = MEAN_TASK_TIME * 100;
 
-    static Runnable createTask(int duration){
-        return () -> {
-            try {
-                Thread.sleep(duration);
-            } catch (InterruptedException e) {
-                throw new RuntimeException(e);
-            }
-        };
+    static volatile long blackHoleSink;
+
+    static final long ITERS_PER_MS = 620_000;
+
+    static void blackHole(long difficulty) {
+        long result = 0;
+        for (long i = 0; i < difficulty; i++) {
+            result = result * 0x5DEECE66DL + 0xBL + i;
+        }
+        blackHoleSink = result;
+    }
+
+//    Без использования функции blackHole(long difficulty).
+//    static Runnable createTask(int duration) {
+//        return () -> {
+//            try {
+//                Thread.sleep(duration);
+//            } catch (InterruptedException e) {
+//                Thread.currentThread().interrupt();
+//                throw new RuntimeException(e);
+//            }
+//        };
+//    }
+
+    static Runnable createTask(int duration) {
+        return () -> blackHole((long) duration * ITERS_PER_MS);
     }
 
     static int createTaskDuration(TaskDistribution distribution, int taskId, Random random) {
@@ -270,6 +311,11 @@ public class WorkStealing {
         for (var distribution : TaskDistribution.values()) {
             System.out.println("Task distribution: " + distribution);
 
+            var fixedThreadPoolResult = measureExecutor(new FixedThreadPoolExecutor(THREAD_NUMBER), distribution);
+
+            System.out.println("Fixed Thread Pool submission time: " + fixedThreadPoolResult.first / 1_000_000d);
+            System.out.println("Fixed Thread Pool execution time: " + fixedThreadPoolResult.second / 1_000_000d);
+
             var roundRobinExecutorResult = measureExecutor(new RoundRobinExecutor(THREAD_NUMBER), distribution);
 
             System.out.println("Round Robin Executor submition time: " + roundRobinExecutorResult.first/1_000_000d);
@@ -281,4 +327,34 @@ public class WorkStealing {
             System.out.println("Work Stealing Executor execution time: " + workStealingExecutorResult.second/1_000_000d);
         }
     }
+/*
+Результаты с Thread.sleep:
+
+Результаты с blackHole:
+Target optimal time: 10000
+Estimated optimal time: 10000
+Thread per task executor submtition time: 61586.9878
+Thread per task execution time: 61802.2713
+Task distribution: UNIFORM
+Fixed Thread Pool submission time: 108.7668
+Fixed Thread Pool execution time: 10362.2405
+Round Robin Executor submition time: 32.5187
+Round Robin Executor execution time: 10262.0552
+Work Stealing Executor submition time: 19.5942
+Work Stealing Executor execution time: 10034.8908
+Task distribution: PERIODIC
+Fixed Thread Pool submission time: 37.1903
+Fixed Thread Pool execution time: 10015.9381
+Round Robin Executor submition time: 757.8523
+Round Robin Executor execution time: 95893.9841
+Work Stealing Executor submition time: 39.4119
+Work Stealing Executor execution time: 10172.1682
+Task distribution: PARETO
+Fixed Thread Pool submission time: 6.0025
+Fixed Thread Pool execution time: 10099.6539
+Round Robin Executor submition time: 15.3956
+Round Robin Executor execution time: 10531.196
+Work Stealing Executor submition time: 10.7839
+Work Stealing Executor execution time: 10123.7837
+*/
 }
