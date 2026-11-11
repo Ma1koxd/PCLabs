@@ -73,8 +73,35 @@ public class BoundedQueueWorkshop {
             if (capacity <= 0) throw new IllegalArgumentException("capacity must be positive");
             this.capacity = capacity;
         }
-        boolean offer(E value) { throw todo(1); }
-        E poll() { throw todo(1); }
+
+        boolean offer(E value) {
+            if(value == null) {
+                throw new NullPointerException();
+            }
+
+            mutex.lock();
+            try {
+                if(buffer.size() >= capacity) {
+                    return false;
+                }
+                buffer.addLast(value);
+                return true;
+            } finally {
+                mutex.unlock();
+            }
+        }
+
+        E poll() {
+            mutex.lock();
+            try {
+                if (buffer.isEmpty()) {
+                    return null;
+                }
+                return buffer.removeFirst();
+            } finally {
+                mutex.unlock();
+            }
+        }
     }
 
     static final class BlockingQueue<E> {
@@ -89,8 +116,38 @@ public class BoundedQueueWorkshop {
             slots = new Semaphore(capacity);
             items = new Semaphore(0);
         }
-        void put(E value) throws InterruptedException { throw todo(2); }
-        E take() throws InterruptedException { throw todo(2); }
+
+        void put(E value) throws InterruptedException {
+            if(value == null) {
+                throw new NullPointerException();
+            }
+
+            slots.acquire();
+
+            mutex.lock();
+            try {
+                buffer.addLast(value);
+            } finally {
+                mutex.unlock();
+            }
+
+            items.release();
+        }
+
+        E take() throws InterruptedException {
+            items.acquire();
+
+            mutex.lock();
+            E value;
+            try {
+                value = buffer.removeFirst();
+            } finally {
+                mutex.unlock();
+            }
+
+            slots.release();
+            return value;
+        }
 
     }
 

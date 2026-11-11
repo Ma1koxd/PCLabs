@@ -136,29 +136,143 @@ public class MutexWorkshop {
 
     static final class SpinMutex implements Mutex {
         private final AtomicReference<Thread> owner = new AtomicReference<>();
-        public void lock() { throw todo(1); }
-        public void unlock() { throw todo(1); }
+
+        public void lock() {
+            if(owner.get() == Thread.currentThread()) {
+                throw new IllegalStateException("SpinMutex already locked");
+            }
+
+            while(!owner.compareAndSet(null, Thread.currentThread())) {
+                Thread.onSpinWait();
+            }
+        }
+
+        public void unlock() {
+            if(owner.get() != Thread.currentThread()) {
+                throw new IllegalMonitorStateException();
+            }
+
+            owner.set(null);
+        }
     }
 
     static final class ReentrantSpinMutex implements Mutex {
         private final AtomicReference<Thread> owner = new AtomicReference<>();
         private int depth;
-        public void lock() { throw todo(2); }
-        public void unlock() { throw todo(2); }
+
+        public void lock() {
+            if(owner.get() == Thread.currentThread()) {
+                depth++;
+                return;
+            }
+
+            while(!owner.compareAndSet(null, Thread.currentThread())) {
+                Thread.onSpinWait();
+            }
+
+            depth = 1;
+        }
+
+        public void unlock() {
+            if(owner.get() != Thread.currentThread()) {
+                throw new IllegalMonitorStateException();
+            }
+
+            depth--;
+
+            if(depth == 0) {
+                owner.set(null);
+            }
+        }
     }
 
     static final class OneWaiterMutex implements Mutex {
         private final AtomicReference<Thread> owner = new AtomicReference<>();
         private final AtomicReference<Thread> waiter = new AtomicReference<>();
-        public void lock() { throw todo(4); }
-        public void unlock() { throw todo(4); }
+
+        public void lock() {
+            if(owner.get() == Thread.currentThread()) {
+                throw new IllegalStateException();
+            }
+            if (owner.compareAndSet(null, Thread.currentThread())) {
+                return;
+            }
+            waiter.set(Thread.currentThread());
+
+            boolean interrupted = false;
+
+            try {
+                while (!owner.compareAndSet(null, Thread.currentThread())) {
+                    if (Thread.interrupted()) {
+                        interrupted = true;
+                    }
+
+                    LockSupport.park(this);
+                }
+            } finally {
+                waiter.compareAndSet(Thread.currentThread(), null);
+
+                if (interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        }
+
+        public void unlock() {
+            if (!owner.compareAndSet(Thread.currentThread(), null)) {
+                throw new IllegalMonitorStateException();
+            }
+            Thread next = waiter.get();
+
+            if (next != null) {
+                LockSupport.unpark(next);
+            }
+        }
     }
 
     static final class QueuedMutex implements Mutex {
         private final AtomicReference<Thread> owner = new AtomicReference<>();
         private final ConcurrentLinkedQueue<Thread> waiters = new ConcurrentLinkedQueue<>();
-        public void lock() { throw todo(5); }
-        public void unlock() { throw todo(5); }
+        public void lock() {
+            if (owner.get() == Thread.currentThread()) {
+                throw new IllegalStateException();
+            }
+
+            waiters.add(Thread.currentThread());
+
+            boolean interrupted = false;
+
+            while (true) {
+                if (waiters.peek() == Thread.currentThread() &&
+                        owner.compareAndSet(null, Thread.currentThread())) {
+
+                    waiters.poll();
+
+                    if (interrupted) {
+                        Thread.currentThread().interrupt();
+                    }
+
+                    return;
+                }
+
+                if (Thread.interrupted()) {
+                    interrupted = true;
+                }
+
+                LockSupport.park(this);
+            }
+        }
+        public void unlock() {
+            if (!owner.compareAndSet(Thread.currentThread(), null)) {
+                throw new IllegalMonitorStateException();
+            }
+
+            Thread next = waiters.peek();
+
+            if (next != null) {
+                LockSupport.unpark(next);
+            }
+        }
     }
 
     private static UnsupportedOperationException todo(int step) {
